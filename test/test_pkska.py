@@ -16,7 +16,7 @@ class MyKey(BaseModel):
     k3: Optional[str]
 
     @staticmethod
-    def get_key_cols() -> KeygenRules:
+    def get_rules() -> KeygenRules:
         # on prefix !, emit the name verbatim witout any value lookup, e.g. MYKEY#k1#k1value
         return KeygenRules(pk = ["k1"], sk=["!MYKEY", "k2", "k1"])
 
@@ -30,7 +30,7 @@ class FooKey(BaseModel):
     k1: str
     date: Optional[str]
     @staticmethod
-    def get_key_cols() -> KeygenRules:
+    def get_rules() -> KeygenRules:
         return KeygenRules(pk= ["k1"], sk = ["!Foo", "date"])
 
 class FooModel(FooKey):
@@ -41,7 +41,7 @@ def test_serialize_model():
     with mock_dynamodb2():
         resources.dynamo_table("mytable", "pk", "sk")
         db = TableSpec(name="mytable", pk="pk", sk="sk", type_col="type")
-        dao = Dao(MyKey, MyModel, db)
+        dao = Dao(MyModel, db)
 
         m = MyModel(k1="a1", k2="a2", a="aval", b=12)
         dao.add(m)
@@ -49,7 +49,7 @@ def test_serialize_model():
         g = dao.get(MyKey(k1="a1", k2="a2"))
         print(g)
 
-        fdao = Dao(FooKey, FooModel, db)
+        fdao = Dao(FooModel, db)
 
         fdao.add(FooModel(k1="a1", date="a1", username="tauno"))
         fdao.add(FooModel(k1="a1", date="b1", username="tauno"))

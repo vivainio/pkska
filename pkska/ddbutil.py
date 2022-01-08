@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Tuple, Optional, Generic, TypeVar, Callable
+from typing import List, Dict, Any, Tuple, Optional, Generic, TypeVar, Callable, Protocol
 
 from dataclasses import dataclass
 
@@ -22,9 +22,6 @@ def deserialize(obj: Dict[str, Any]):
 class KeygenRules:
     pk: List[str]
     sk: List[str]
-    extra: Optional[Dict[str, Any]] = None
-
-    # cols: List[Tuple[str, List[str]]]
 
 
 def generate_keys_with_rules(rules: List[Any], d: Dict[str, Any]):
@@ -48,24 +45,6 @@ def generate_keys_with_rules(rules: List[Any], d: Dict[str, Any]):
     return resp
 
 
-def key_adder(rules: KeygenRules, fixed: Dict[str, Any] = {}):
-    # simple fo
-    def addkeys(d: Dict[str, Any]):
-        # add fixed items first so they can be used in keys
-        d.update(fixed)
-        generate_keys_with_rules(rules, d)
-
-    return addkeys
-
-
-TKey = TypeVar("TKey")
-TVal = TypeVar("TVal")
-
-
-def ddb_client() -> boto3.client:
-    return boto3.client("dynamodb")
-
-
 def ddb_table(tablename: str) -> Any:
     return boto3.resource("dynamodb").Table(tablename)
 
@@ -83,15 +62,21 @@ def parse_rules(db: TableSpec, rules: KeygenRules):
     return [(db.pk, rules.pk), (db.sk, rules.sk)]
 
 
-class Dao(Generic[TKey, TVal]):
-    def __init__(self, keyclass: TKey, valclass: TVal, spec: TableSpec):
-        self.rules = parse_rules(spec, valclass.get_key_cols())
+# these are actually classes, not instances
+class ModelProtocol(Protocol):
+    def get_rules(self) -> KeygenRules: ...
+    def __call__(self) -> Any: ...
 
-        # self.rules = #valclass.get_key_cols()
-        # self.keyclass = keyclass
+    def dict(self) -> dict: ...
+
+TKey = TypeVar("TKey", bound=ModelProtocol)
+TVal = TypeVar("TVal", bound=ModelProtocol)
+
+class Dao(Generic[TKey, TVal]):
+    def __init__(self, valclass: TVal, spec: TableSpec):
+        self.rules = parse_rules(spec, valclass.get_rules())
         self.valclass = valclass
         self.spec = spec
-        self.key_adder = key_adder(self.rules)
 
     def _table(self):
         return ddb_table(self.spec.name)
