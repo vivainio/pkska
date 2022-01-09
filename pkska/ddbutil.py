@@ -1,10 +1,11 @@
-from typing import List, Dict, Any, Tuple, Optional, Generic, TypeVar, Callable, Protocol
+from typing import List, Dict, Any, Tuple, Optional, Generic, TypeVar, Callable, Protocol, Type
 
 from dataclasses import dataclass
 
 import boto3
 from boto3.dynamodb.types import TypeSerializer, TypeDeserializer
 from boto3.dynamodb.conditions import Key, AttributeBase
+from pydantic import BaseModel
 
 _serializer = TypeSerializer()
 _deserializer = TypeDeserializer()
@@ -64,18 +65,22 @@ def parse_rules(db: TableSpec, rules: KeygenRules):
 
 # these are actually classes, not instances
 class ModelProtocol(Protocol):
-    def get_rules(self) -> KeygenRules: ...
-    def __call__(self) -> Any: ...
-
     def dict(self) -> dict: ...
 
-TKey = TypeVar("TKey", bound=ModelProtocol)
-TVal = TypeVar("TVal", bound=ModelProtocol)
+class QueryModel(BaseModel):
+    ...
+
+
+TKey = TypeVar("TKey", bound=BaseModel)
+TVal = TypeVar("TVal", bound=BaseModel)
+
 
 class Dao(Generic[TKey, TVal]):
-    def __init__(self, valclass: TVal, spec: TableSpec):
-        self.rules = parse_rules(spec, valclass.get_rules())
+    def __init__(self, valclass: Type[TVal], spec: TableSpec):
         self.valclass = valclass
+
+        rules: KeygenRules = valclass.get_rules() # type: ignore
+        self.rules = parse_rules(spec, rules)
         self.spec = spec
 
     def _table(self):
@@ -87,7 +92,7 @@ class Dao(Generic[TKey, TVal]):
         d.update(keys)
         if self.spec.type_col:
             d[self.spec.type_col] = type(obj).__name__
-        self._table().put_item(Item=d)
+        self._table().put_item(Item=d, ConditionExpression=f"attribute_not_exists({self.spec.pk})")
 
     def get(self, key: TKey) -> Optional[TVal]:
         keyd = key.dict()
@@ -96,6 +101,34 @@ class Dao(Generic[TKey, TVal]):
         if got is None:
             return None
         return self.valclass(**got)
+
+    def update(self, key: TKey, update_dict: Dict[str, Any]):
+        keyd = key.dict()
+        key = generate_keys_with_rules(self.rules, keyd)
+
+
+        expr = []
+        attrnames = {}
+        vals = {}
+        for i, (k,v) in enumerate(update_dict.items()):
+            expr.append(f"#attr{i} = :val{i}")
+            attrnames[f"#attr{i}"] = k
+            vals[f":val{i}"] = v
+
+
+
+
+        res = self._table().update_item(
+                                    Key=key,
+                                    UpdateExpression="set " + ", ".join(expr),
+                                    ExpressionAttributeNames=attrnames,
+                                    ExpressionAttributeValues=vals,
+                                    ConditionExpression=f"attribute_exists({self.spec.pk})"
+
+
+        )
+
+        return res
 
     def query_pk(self, key: TKey):
         # this will stop at first None
