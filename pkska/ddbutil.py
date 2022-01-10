@@ -3,20 +3,13 @@ from typing import List, Dict, Any, Tuple, Optional, Generic, TypeVar, Callable,
 from dataclasses import dataclass
 
 import boto3
-from boto3.dynamodb.types import TypeSerializer, TypeDeserializer
+#from boto3.dynamodb.types import TypeSerializer, TypeDeserializer
 from boto3.dynamodb.conditions import Key, AttributeBase
 from pydantic import BaseModel
 
-_serializer = TypeSerializer()
-_deserializer = TypeDeserializer()
+#_serializer = TypeSerializer()
+#_deserializer = TypeDeserializer()
 
-
-def serialize(obj: Dict[str, Any]):
-    return _serializer.serialize(obj)["M"]
-
-
-def deserialize(obj: Dict[str, Any]):
-    return _deserializer.deserialize({"M": obj})
 
 
 @dataclass()
@@ -25,7 +18,7 @@ class KeygenRules:
     sk: List[str]
 
 
-def generate_keys_with_rules(rules: List[Any], d: Dict[str, Any]):
+def generate_keys_with_rules(rules: List[Any], d: Dict[str, Any]) -> Dict[str, str]:
     resp = {}
     for rulek, rulefields in rules:
         parts = []
@@ -59,16 +52,8 @@ class TableSpec:
 
 
 # first rule is always pk rule, then sk rule
-def parse_rules(db: TableSpec, rules: KeygenRules):
+def parse_rules(db: TableSpec, rules: KeygenRules) -> List[Tuple[str, List[str]]]:
     return [(db.pk, rules.pk), (db.sk, rules.sk)]
-
-
-# these are actually classes, not instances
-class ModelProtocol(Protocol):
-    def dict(self) -> dict: ...
-
-class QueryModel(BaseModel):
-    ...
 
 
 TKey = TypeVar("TKey", bound=BaseModel)
@@ -83,10 +68,10 @@ class Dao(Generic[TKey, TVal]):
         self.rules = parse_rules(spec, rules)
         self.spec = spec
 
-    def _table(self):
+    def _table(self) -> Any:
         return ddb_table(self.spec.name)
 
-    def add(self, obj: TVal):
+    def add(self, obj: TVal) -> None:
         d = obj.dict()
         keys = generate_keys_with_rules(self.rules, d)
         d.update(keys)
@@ -96,15 +81,15 @@ class Dao(Generic[TKey, TVal]):
 
     def get(self, key: TKey) -> Optional[TVal]:
         keyd = key.dict()
-        key = generate_keys_with_rules(self.rules, keyd)
-        got = self._table().get_item(Key=key).get("Item")
+        keyg = generate_keys_with_rules(self.rules, keyd)
+        got = self._table().get_item(Key=keyg).get("Item")
         if got is None:
             return None
         return self.valclass(**got)
 
-    def update(self, key: TKey, update_dict: Dict[str, Any]):
+    def update(self, key: TKey, update_dict: Dict[str, Any]) -> None:
         keyd = key.dict()
-        key = generate_keys_with_rules(self.rules, keyd)
+        keyg = generate_keys_with_rules(self.rules, keyd)
 
 
         expr = []
@@ -115,11 +100,8 @@ class Dao(Generic[TKey, TVal]):
             attrnames[f"#attr{i}"] = k
             vals[f":val{i}"] = v
 
-
-
-
         res = self._table().update_item(
-                                    Key=key,
+                                    Key=keyg,
                                     UpdateExpression="set " + ", ".join(expr),
                                     ExpressionAttributeNames=attrnames,
                                     ExpressionAttributeValues=vals,
@@ -128,20 +110,20 @@ class Dao(Generic[TKey, TVal]):
 
         )
 
-        return res
+        #return res
 
-    def query_pk(self, key: TKey):
+    def query_pk(self, key: TKey) -> List[Dict[str, Any]]:
         # this will stop at first None
         pkval = generate_keys_with_rules([self.rules[0]], key.dict())[self.spec.pk]
-        got = self._table().query(
+        res = self._table().query(
             KeyConditionExpression=Key(self.spec.pk).eq(pkval))
 
-        return got
+        return res.get("Items")
 
-    def query_beg(self, key: TKey):
+    def query_beg(self, key: TKey) -> List[Dict[str, Any]]:
         return self.query_cond(key, lambda k, val: k.begins_with(val))
 
-    def query_cond(self, key: TKey, cond_function: Callable[[Key, str], Any]):
+    def query_cond(self, key: TKey, cond_function: Callable[[Key, str], Any]) -> List[Dict[str, Any]]:
 
         # can write more complex queries using both pk and sk
         keyd = key.dict()

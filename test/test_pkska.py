@@ -43,7 +43,7 @@ def test_serialize_model():
     with mock_dynamodb2():
         resources.dynamo_table("mytable", "pk", "sk")
         db = TableSpec(name="mytable", pk="pk", sk="sk", type_col="type")
-        dao: Dao[MyModel] = Dao(MyModel, db)
+        dao: Dao[MyKey, MyModel] = Dao(MyModel, db)
 
         m = MyModel(k1="a1", k2="a2", a="aval", b=12)
         dao.add(m)
@@ -51,13 +51,14 @@ def test_serialize_model():
         g = dao.get(MyKey(k1="a1", k2="a2"))
         print(g)
 
-        fdao: Dao[FooModel] = Dao(FooModel, db)
-        fdao.add(FooModel(k1="a1", date="a1", username="tauno"))
-        fdao.add(FooModel(k1="a1", date="b1", username="tauno"))
+        fdao: Dao[FooKey, FooModel] = Dao(FooModel, db)
+        fdao.add(FooModel(k1="a1", date="a1", username="taunoa1"))
+        fdao.add(FooModel(k1="a1", date="b1", username="taunob1"))
 
         # returns both MyModel and FooModel items
         pkrows = fdao.query_pk(FooKey(k1="a1"))
-        assert len(pkrows) == 4
+        pprint(pkrows)
+        assert len(pkrows) == 3
         pprint(pkrows)
 
         # returns only FooModel items (because of !Foo in SK rules)
